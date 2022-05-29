@@ -10,9 +10,9 @@ const dataWords = {
     "5": './data/mots_5.txt',
     "6": './data/mots_6.txt',
     "7": './data/mots_7.txt',
-    "8": './data/mots_8.txt',
+ /*   "8": './data/mots_8.txt',
     "9": './data/mots_9.txt',
-/*     "10": './data/mots_10.txt',
+     "10": './data/mots_10.txt',
     "11": './data/mots_11.txt',
     "12": './data/mots_12.txt', */
 }
@@ -30,10 +30,15 @@ const gameStorage = {
     createrecycleBinInterval() {
         this.recycleBinTimer = setInterval(() => {
             this.clearRecycleBin();
-        }, 1000);
+        }, 2500);
     },    
     clearRecycleBin() {
-        
+        this.recycleBin.forEach((item, index, object) => {
+            if (this.mandatoryMsg.includes(item) == false) {
+                item.delete();
+                object.splice(index, 1);
+            }
+        });
     },
     deleteKey(key) {
         delete gameStorage[key]
@@ -105,21 +110,26 @@ client.on('messageCreate', async function (message) {
 
 
 async function createGameAndMessage(channel) {
-    const GAME = newGameInstance(channel);
+    const GAME = await newGameInstance(channel);
+
     const row = new MessageActionRow().addComponents(new MessageButton().setCustomId('game-start').setLabel('Lancer').setStyle('PRIMARY'))
-                                        .addComponents(new MessageButton().setCustomId('join').setLabel('Rejoindre').setStyle('SECONDARY'));
+                                        .addComponents(new MessageButton().setCustomId('join').setLabel('Rejoindre').setStyle('SECONDARY'))
+                                        .addComponents(new MessageButton().setCustomId('new-word').setLabel('Nouveau mot').setStyle('SUCCESS'));
 
     let message = await channel.send({components: [row]});
     gameStorage.mandatoryMsg.push(message);
 }
 
-function newGameInstance(channel) {
+async function newGameInstance(channel) {
     // create an instance of the game for this channel
+    if (gameStorage.hasOwnProperty(channel.id)) {
+        channel.bulkDelete(100, true);
+        gameStorage.deleteKey(channel.id);
+    }
     const GAME = createGameForChannel(channel);
     GAME.word = getRandomData(GAME);
     return GAME;
 }
-
 
 
 function getRandomData(GAME) {
@@ -158,12 +168,15 @@ client.on('interactionCreate', async interaction => {
         }
     }
 
+    if(interaction.customId == "new-word") {
+        await createGameAndMessage(interaction.channel);
+    }
+
 });
 
 
 function createGameForChannel(channel) {
     gameStorage[channel.id] = {
-        status: "waiting",
         word: null,
         attemps: [],
         players: {},
