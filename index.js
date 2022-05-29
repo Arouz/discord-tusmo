@@ -30,7 +30,7 @@ const gameStorage = {
     createrecycleBinInterval() {
         this.recycleBinTimer = setInterval(() => {
             this.clearRecycleBin();
-        }, 2500);
+        }, 4500);
     },    
     clearRecycleBin() {
         this.recycleBin.forEach((item, index, object) => {
@@ -187,6 +187,8 @@ function createGameForChannel(channel) {
         win: false,
         dictionary: [],
         purgeChannel() {
+            // stop interval
+            clearInterval(gameStorage.recycleBinTimer);
             this.channel.bulkDelete(100, true);
             gameStorage.deleteKey(channel.id);
         },
@@ -198,9 +200,6 @@ function createGameForChannel(channel) {
         },
         stopGame(message, timer) {
             this.channel.send(message);
-            setTimeout(() => {
-                GAME.purgeChannel();
-            }, timer);
         },
         updateImage(img) {
             this.interaction.edit({
@@ -243,10 +242,18 @@ async function renderAccurateImage(GAME) {
                 wordCopy[i] = null;
                 wellPlaced++;
             } else if (wordCopy.includes(attemps[j][i])) {
-                context.drawImage(gameStorage.images.wrong, i * 64, j * 64, 64, 64);
-                context.fillText(attemps[j][i], i * 64 + 25, j * 64 + 38);
-                let index = wordCopy.indexOf(attemps[j][i]);
 
+                let letterInWordCopy = countLetter(wordCopy);
+                let letterInAttemps = countLetter(attemps[j].split(''));
+
+                if (letterInWordCopy[attemps[j][i]] < letterInAttemps[attemps[j][i]]) {
+                    context.drawImage(gameStorage.images.game, i * 64, j * 64, 64, 64);
+                    context.fillText(attemps[j][i], i * 64 + 25, j * 64 + 38);
+                } else {
+                    context.drawImage(gameStorage.images.wrong, i * 64, j * 64, 64, 64);
+                    context.fillText(attemps[j][i], i * 64 + 25, j * 64 + 38);
+                }
+                let index = wordCopy.indexOf(attemps[j][i]);
                 wordCopy[index] = null;
 
             } else {
@@ -288,4 +295,17 @@ async function renderAccurateImage(GAME) {
     const attachment = new MessageAttachment(canvas.toBuffer('image/png'), 'profile-image.png');
 
     return attachment;
+}
+
+
+function countLetter(arr) {
+    let o = {}
+    arr.forEach(element => {
+        if (o.hasOwnProperty(element)) {
+            o[element]++;
+        } else {
+            o[element] = 1;
+        }
+    });
+    return o;
 }
