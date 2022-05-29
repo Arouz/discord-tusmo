@@ -17,13 +17,45 @@ const dataWords = {
     "12": './data/mots_12.txt', */
 }
 
-const token = "OTgwMzAxOTc1ODQ3NTY3Mzkw.GS_ir4.XnO5AGsBEudBA9La1FdHcpjJ3iSYyQMqi9acwA";
+
+const secrets = require('./credentials/secrets.json');
+const token = secrets.token;
 
 // games data storage
-const gameStorage = {deleteKey(key) {delete gameStorage[key]}};
+const gameStorage = {
+    recycleBin: [],
+    recycleBinTimer: null,
+    mandatoryMsg: [],
+    images: {},
+    createrecycleBinInterval() {
+        this.recycleBinTimer = setInterval(() => {
+            this.clearRecycleBin();
+        }, 1000);
+    },    
+    clearRecycleBin() {
+        
+    },
+    deleteKey(key) {
+        delete gameStorage[key]
+    }
+};
 
-client.once('ready', () => {
-    console.log("RUNNING");
+client.once('ready', async () => {
+    console.log("ATUSMO ONLINE");
+    // store images
+    const cGame = await readFile('./assets/game-cell.png');
+    gameStorage.images.game = new Canvas.Image();
+    gameStorage.images.game.src = cGame;
+    
+    const cGood = await readFile('./assets/good-cell.png')
+    gameStorage.images.good = new Canvas.Image();
+    gameStorage.images.good.src = cGood;
+    
+    const cWrong = await readFile('./assets/wrong-placed-cell.png')
+    gameStorage.images.wrong = new Canvas.Image();
+    gameStorage.images.wrong.src = cWrong;
+    
+    gameStorage.createrecycleBinInterval();
 });
 client.login(token);
 
@@ -41,60 +73,44 @@ client.on('messageCreate', async function (message) {
             } else if (!GAME.dictionary.includes(message.content)) {
                 message.channel.send("Ce mot n'est pas dans le dictionnaire !");
             } else {
-                GAME.try++; 
+                 
                 GAME.attemps.push(message.content.toUpperCase());
                 const image = await renderAccurateImage(GAME);
                 GAME.updateImage(image);
     
                 if (GAME.win) {
-                    message.channel.send("Bravo, vous avez gagné !");
-                    setTimeout(() => {
-                        GAME.purgeChannel();
-                    }, 6000);
+                    GAME.stopGame("Bravo, vous avez gagné !", 5000);
                     return;
                 }
     
-                if (GAME.try >= GAME.lifePoints) {
-                    message.channel.send("Vous avez perdu, le mot était : " + GAME.word);
-                    setTimeout(() => {
-                        GAME.purgeChannel();
-                    }, 6000);
+                if (GAME.attemps.length >= GAME.lifePoints) {
+                    GAME.stopGame("Vous avez perdu, le mot était : " + GAME.word, 10000);
                     return;
                 }
             }
-        }
-
-        if (message.content === '!purge') { 
+        } else if (message.content == "!purge") {
             GAME.purgeChannel();
             return;
         }
+
+
     }
 
     if (message.content === '!game') {
-        createGameAndMessage(message.channel);
+        await createGameAndMessage(message.channel);
     }
 
-    setTimeout(() => {
-        autoDeleteMsg(message);
-    }, 3000);
-
+    gameStorage.recycleBin.push(message);
 })
 
-function autoDeleteMsg(msg) {
-    if (gameStorage.hasOwnProperty(msg.channel.id)) {
-        if (!gameStorage[msg.channel.id].messages.includes(msg)) {
-            msg.delete();
-        }
-    }
-}
 
 async function createGameAndMessage(channel) {
     const GAME = newGameInstance(channel);
-    const row = new MessageActionRow().addComponents(new MessageButton().setCustomId('game-start').setLabel('start').setStyle('PRIMARY'))
-                                        .addComponents(new MessageButton().setCustomId('join').setLabel('join').setStyle('SECONDARY'));
+    const row = new MessageActionRow().addComponents(new MessageButton().setCustomId('game-start').setLabel('Lancer').setStyle('PRIMARY'))
+                                        .addComponents(new MessageButton().setCustomId('join').setLabel('Rejoindre').setStyle('SECONDARY'));
 
     let message = await channel.send({components: [row]});
-    GAME.messages.push(message);
+    gameStorage.mandatoryMsg.push(message);
 }
 
 function newGameInstance(channel) {
@@ -115,7 +131,6 @@ function getRandomData(GAME) {
 }
 
 
-// ✅ read file SYNCHRONOUSLY
 function syncReadFileAndReturnWord(filename) {
   const contents = readFileSync(filename, 'utf-8');
   const arr = contents.split(/\r?\n/);
@@ -131,10 +146,7 @@ client.on('interactionCreate', async interaction => {
     
     if(interaction.customId == "game-start") {
         interaction.reply("La game se lance !");
-        const image = await renderAccurateImage(GAME);
-        let message = await interaction.channel.send({ files: [image] });
-        GAME.messages.push(message);
-        GAME.interaction = message; 
+        GAME.startGame();
     }
 
     if(interaction.customId == "join") {
@@ -160,21 +172,22 @@ function createGameForChannel(channel) {
         previousWord: [],
         interaction: null,
         win: false,
-        try: 0,
         dictionary: [],
-        messages: [],
         purgeChannel() {
             this.channel.bulkDelete(100, true);
             gameStorage.deleteKey(channel.id);
         },
-        getAllPlayers() {
-            return this.players;
+        async startGame() {
+            const image = await renderAccurateImage(this);
+            let message = await this.channel.send({ files: [image] });
+            gameStorage.mandatoryMsg.push(message);
+            this.interaction = message; 
         },
-        startGame() {
-
-        },
-        stopGame() {
-
+        stopGame(message, timer) {
+            this.channel.send(message);
+            setTimeout(() => {
+                GAME.purgeChannel();
+            }, timer);
         },
         updateImage(img) {
             this.interaction.edit({
@@ -193,37 +206,16 @@ function createGameForChannel(channel) {
 
 async function renderAccurateImage(GAME) {
 
-    let nLetters = GAME.word.length;
-    let theWord = GAME.word.toUpperCase();
+    let nLetters = GAME.word.length,
+        theWord = GAME.word.toUpperCase(),
+        attemps = GAME.attemps,
+        rounds = GAME.attemps.length;
 
-    let attemps = GAME.attemps;
-    let rounds = GAME.attemps.length;
-
-    // Game cell = 64px / 64px
-    // answer cell = 60px / 60px
-    // height = 6 x 64px = 384px
-    // width = nLetters x 64px = nLetters x 64px
     const canvas = Canvas.createCanvas(nLetters * 64, 384);
     const context = canvas.getContext('2d');
 
     context.font = '24px sans-serif';
-    // Select the style that will be used to fill the text in
     context.fillStyle = '#ffffff';
-
-    // game cell
-    const gameCellFile = await readFile('./assets/game-cell.png');
-	const gameCell = new Canvas.Image();
-	gameCell.src = gameCellFile;
-
-    // good cell 
-    const goodCellFile = await readFile('./assets/good-cell.png');
-    const goodCell = new Canvas.Image();
-    goodCell.src = goodCellFile;
-
-    // bad cell
-    const badCellFile = await readFile('./assets/wrong-place-cell.png');
-    const badCell = new Canvas.Image();
-    badCell.src = badCellFile;
 
     for (let j = 0; j < rounds; j++) {
 
@@ -233,19 +225,19 @@ async function renderAccurateImage(GAME) {
         for (let i = 0; i < nLetters; i++) {
 
             if (attemps[j][i] === theWord[i]) {
-                context.drawImage(goodCell, i * 64, j * 64, 64, 64);
+                context.drawImage(gameStorage.images.good, i * 64, j * 64, 64, 64);
                 context.fillText(attemps[j][i], i * 64 + 25, j * 64 + 38);
                 wordCopy[i] = null;
                 wellPlaced++;
             } else if (wordCopy.includes(attemps[j][i])) {
-                context.drawImage(badCell, i * 64, j * 64, 64, 64);
+                context.drawImage(gameStorage.images.wrong, i * 64, j * 64, 64, 64);
                 context.fillText(attemps[j][i], i * 64 + 25, j * 64 + 38);
                 let index = wordCopy.indexOf(attemps[j][i]);
 
                 wordCopy[index] = null;
 
             } else {
-                context.drawImage(gameCell, i * 64, j * 64, 64, 64);
+                context.drawImage(gameStorage.images.game, i * 64, j * 64, 64, 64);
                 context.fillText(attemps[j][i], i * 64 + 25, j * 64 + 38);
             }
 
@@ -261,20 +253,20 @@ async function renderAccurateImage(GAME) {
             for (let i = 0; i < nLetters; i++) {
     
                 if (j == rounds && i == 0) {
-                    context.drawImage(goodCell, i * 64, j * 64, 64, 64);
+                    context.drawImage(gameStorage.images.good, i * 64, j * 64, 64, 64);
                     context.fillText(theWord[i], i * 64 + 25, j * 64 + 38);
                 } else if (j == rounds && i > 0) {
-                    context.drawImage(gameCell, i * 64, j * 64, 64, 64);
+                    context.drawImage(gameStorage.images.game, i * 64, j * 64, 64, 64);
                     context.fillText("_", i * 64 + 25, j * 64 + 38);
                 } else {
-                    context.drawImage(gameCell, i * 64, j * 64, 64, 64);
+                    context.drawImage(gameStorage.images.game, i * 64, j * 64, 64, 64);
                 }
             }
         }
     } else {
         for (let j = rounds; j < 6; j++) {
             for (let i = 0; i < nLetters; i++) {
-                context.drawImage(gameCell, i * 64, j * 64, 64, 64);
+                context.drawImage(gameStorage.images.game, i * 64, j * 64, 64, 64);
             }
         }
     }
@@ -283,8 +275,4 @@ async function renderAccurateImage(GAME) {
     const attachment = new MessageAttachment(canvas.toBuffer('image/png'), 'profile-image.png');
 
     return attachment;
-}
-
-String.prototype.replaceAt = function(index, replacement) {
-    return this.substring(0, index) + replacement + this.substring(index + replacement.length);
 }
