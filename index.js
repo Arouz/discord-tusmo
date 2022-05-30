@@ -30,7 +30,7 @@ const gameStorage = {
     createrecycleBinInterval() {
         this.recycleBinTimer = setInterval(() => {
             this.clearRecycleBin();
-        }, 4500);
+        }, 3000);
     },    
     clearRecycleBin() {
         this.recycleBin.forEach((item, index, object) => {
@@ -77,20 +77,24 @@ client.on('messageCreate', async function (message) {
                 message.channel.send("Votre proposition doit être de la même longueur que le mot à deviner");
             } else if (!GAME.dictionary.includes(message.content)) {
                 message.channel.send("Ce mot n'est pas dans le dictionnaire !");
-            } else {
+            } else if (GAME.status != "ended") {
                  
                 GAME.attemps.push(message.content.toUpperCase());
                 const image = await renderAccurateImage(GAME);
                 GAME.updateImage(image);
     
                 if (GAME.win) {
-                    GAME.stopGame("Bravo, vous avez gagné !", 5000);
-                    return;
+                    let msg = await message.channel.send("Bravo, vous avez gagné !");
+                    gameStorage.mandatoryMsg.push(msg);
+                    GAME.status = "ended";
+                    return
                 }
     
                 if (GAME.attemps.length >= GAME.lifePoints) {
-                    GAME.stopGame("Vous avez perdu, le mot était : " + GAME.word, 10000);
-                    return;
+                    let msg = await message.channel.send("Vous avez perdu, le mot était : " + GAME.word);
+                    gameStorage.mandatoryMsg.push(msg);
+                    GAME.status = "ended";
+                    return
                 }
             }
         } else if (message.content == "!purge") {
@@ -128,6 +132,7 @@ async function newGameInstance(channel) {
     }
     const GAME = createGameForChannel(channel);
     GAME.word = getRandomData(GAME);
+    GAME.status = "started";
     return GAME;
 }
 
@@ -177,6 +182,7 @@ client.on('interactionCreate', async interaction => {
 
 function createGameForChannel(channel) {
     gameStorage[channel.id] = {
+        status: null,
         word: null,
         attemps: [],
         players: {},
@@ -198,7 +204,7 @@ function createGameForChannel(channel) {
             gameStorage.mandatoryMsg.push(message);
             this.interaction = message; 
         },
-        stopGame(message, timer) {
+        stopGame(message) {
             this.channel.send(message);
         },
         updateImage(img) {
@@ -229,49 +235,19 @@ async function renderAccurateImage(GAME) {
     context.font = '24px sans-serif';
     context.fillStyle = '#ffffff';
 
-    for (let j = 0; j < rounds; j++) {
+    for (let j = 0; j < 6; j++) {
 
-        let wordCopy = theWord.split('');
-        let wellPlaced = 0;
+
+        let wellPlaced = 0,
+            wordCopy =  theWord != undefined ? theWord.split('') : "",
+            attempsCopy = attemps[j] != undefined ? attemps[j].split('') : [];
 
         for (let i = 0; i < nLetters; i++) {
 
-            if (attemps[j][i] === theWord[i]) {
-                context.drawImage(gameStorage.images.good, i * 64, j * 64, 64, 64);
-                context.fillText(attemps[j][i], i * 64 + 25, j * 64 + 38);
-                wordCopy[i] = null;
-                wellPlaced++;
-            } else if (wordCopy.includes(attemps[j][i])) {
+            let letterInWordCopy = countLetter(wordCopy),
+                letterInAttemps = countLetter(attempsCopy);
 
-                let letterInWordCopy = countLetter(wordCopy);
-                let letterInAttemps = countLetter(attemps[j].split(''));
-
-                if (letterInWordCopy[attemps[j][i]] < letterInAttemps[attemps[j][i]]) {
-                    context.drawImage(gameStorage.images.game, i * 64, j * 64, 64, 64);
-                    context.fillText(attemps[j][i], i * 64 + 25, j * 64 + 38);
-                } else {
-                    context.drawImage(gameStorage.images.wrong, i * 64, j * 64, 64, 64);
-                    context.fillText(attemps[j][i], i * 64 + 25, j * 64 + 38);
-                }
-                let index = wordCopy.indexOf(attemps[j][i]);
-                wordCopy[index] = null;
-
-            } else {
-                context.drawImage(gameStorage.images.game, i * 64, j * 64, 64, 64);
-                context.fillText(attemps[j][i], i * 64 + 25, j * 64 + 38);
-            }
-
-        }
-
-        if (wellPlaced == nLetters) {
-            GAME.win = true;
-        }
-    }
-
-    if (!GAME.win) {
-        for (let j = rounds; j < 6; j++) { 
-            for (let i = 0; i < nLetters; i++) {
-    
+            if (j >= rounds && !GAME.win) {
                 if (j == rounds && i == 0) {
                     context.drawImage(gameStorage.images.good, i * 64, j * 64, 64, 64);
                     context.fillText(theWord[i], i * 64 + 25, j * 64 + 38);
@@ -281,15 +257,34 @@ async function renderAccurateImage(GAME) {
                 } else {
                     context.drawImage(gameStorage.images.game, i * 64, j * 64, 64, 64);
                 }
+            } else if (j >= rounds && GAME.win) {
+                context.drawImage(gameStorage.images.game, i * 64, j * 64, 64, 64);
+            } else {
+                if (attemps[j][i] === theWord[i]) {
+                    context.drawImage(gameStorage.images.good, i * 64, j * 64, 64, 64);
+                    wordCopy[i] = null;
+                    attempsCopy[i] = null;
+                    wellPlaced++;
+                } else if (wordCopy.includes(attemps[j][i])) {
+                    if (letterInWordCopy[attemps[j][i]] >= letterInAttemps[attemps[j][i]]) {
+                        context.drawImage(gameStorage.images.wrong, i * 64, j * 64, 64, 64);
+                        wordCopy[wordCopy.indexOf(attemps[j][i])] = null;
+                    } else if (letterInWordCopy[attemps[j][i]] < letterInAttemps[attemps[j][i]]) {
+                        context.drawImage(gameStorage.images.game, i * 64, j * 64, 64, 64);
+                    }
+                    attempsCopy[i] = null;
+                } else {
+                    context.drawImage(gameStorage.images.game, i * 64, j * 64, 64, 64);
+                }
+                context.fillText(attemps[j][i], i * 64 + 25, j * 64 + 38);
             }
         }
-    } else {
-        for (let j = rounds; j < 6; j++) {
-            for (let i = 0; i < nLetters; i++) {
-                context.drawImage(gameStorage.images.game, i * 64, j * 64, 64, 64);
-            }
+
+        if (wellPlaced == nLetters) {
+            GAME.win = true;
         }
     }
+
 
 
     const attachment = new MessageAttachment(canvas.toBuffer('image/png'), 'profile-image.png');
